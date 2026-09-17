@@ -1,0 +1,10 @@
+# generated output
+lean_out/
+lean_*/
+*.olean
+__pycache__/
+*.pyc
+
+# never commit credentials
+.env
+*_api_key*
