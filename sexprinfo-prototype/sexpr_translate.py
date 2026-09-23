@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Proof-of-concept: translate Megalodon's -sexprinfo output (patched to
-include PROOF entries, see pf_to_sexpr.patch) directly into Lean 4, using
-proof TERMS rather than tactic scripts.
+"""Translate Megalodon's -sexprinfo output (patched to include PROOF
+entries, see pf_to_sexpr.patch) directly into Lean 4, using proof TERMS
+rather than tactic scripts. Verified 999/999 on the 100thms_12.mg
+reference corpus -- see sexprinfo-prototype/README.md.
 
-This is a first version, deliberately scoped to the non-polymorphic core
-(no TLAM/TPAP/PTPAP/PTPLAM yet) to prove the architecture works end to end
-before extending it. See sexprinfo-prototype/README.md for context.
+Usage:
+    python3 sexpr_translate.py <input.sexpr> <output_dir>
+
+Writes <output_dir>/All.lean (everything, authoritative) plus five
+per-category files (prop_logic / set_theory / nat_arith / ordinals /
+surreals), each including only the prelude items and cross-category
+theorems it actually depends on, so each is intended to compile
+standalone.
 """
-import sys, re
+import sys, re, os
 
 # ---------------------------------------------------------------- parsing
 def parse_sexpr(text, i=0):
@@ -57,26 +63,74 @@ def parse_toplevel_forms(text):
     return forms
 
 
+# --------------------------------------------------------- categorisation
+# Same vocabulary heuristic as megalodon_full.py's DOMAIN/PROP_VOCAB/
+# categorise, so category boundaries match the tactic-based translator's.
+DOMAIN = [
+    ("surreals", re.compile(
+        r"\b(SNo\w*|PNo\w*|PSNo|eps_\w*|SurrealRec\w*|abs_SNo|minus_SNo|"
+        r"add_SNo|mul_SNo|div_SNo|recip_SNo|exp_SNo\w*|real|rational|"
+        r"diadic\w*|int|int_lin_comb|divides_int|gcd_reln|nonincrfinseq|"
+        r"Pi_SNo|tag)\b")),
+    ("ordinals", re.compile(r"\b(ordinal\w*|TransSet|ZF_closed|\w*_closed)\b")),
+    ("nat_arith", re.compile(
+        r"\b(nat_p|nat_\w*|\w*_nat|omega|ordsucc\w*|Pi_nat|primes|prime_nat|"
+        r"composite_nat|nat_pair|nat_primrec|NatRec\w*)\b")),
+    ("set_theory", re.compile(
+        r"\b(In|Subq|Empty|Union|Power|Repl|UnivOf|binunion|binintersect|"
+        r"setminus|Sing|UPair|Sep|famunion|ReplSep|Sigma|setsum|setprod|"
+        r"setexp|proj0|proj1|Inj0|Inj1|Unj|pair\w*|equip|atleastp|inj|surj|"
+        r"bij|inv|finite|infinite|Eps_i\w*|Descr\w*|If_i\w*|In_rec\w*|"
+        r"In_ind|set_ext|Vo)\b|:e|c=")),
+]
+PROP_VOCAB = re.compile(
+    r"\b(and\w*|or\w*|not\w*|iff\w*|True|False|ex|exactly1of\w*|xm|dneg|"
+    r"prop_ext\w*|pred_ext|demorgan|FalseE)\b|/\\|\\/|<->|~")
+TIER_ORDER = ["prop_logic", "set_theory", "nat_arith", "ordinals", "surreals"]
+
+
+def categorise(name, type_text, cited_names):
+    blob = name + " " + type_text + " " + " ".join(cited_names)
+    for cat, pat in DOMAIN:
+        if pat.search(blob):
+            return cat
+    if PROP_VOCAB.search(blob):
+        return "prop_logic"
+    return "nat_arith" if re.search(r"\b\d+\b", blob) else "prop_logic"
+
+
 # ------------------------------------------------------------ translation
 class Ctx:
     def __init__(self):
-        self.hash_to_name = {}   # TMH hash -> Lean name (for tm-level DEF/AXIOM/PARAM/THM)
+        self.hash_to_name = {}   # TMH/KNOWN hash -> Lean name
         self.prim_to_name = {}   # PRIM index -> Lean name
-        self.tp_stack = []       # bound type-var names, outer to inner (TPVAR De Bruijn)
+        self.tp_stack = []       # bound type-var names (TPVAR De Bruijn)
         self.tm_stack = []       # bound term-var names (DB De Bruijn)
         self.pf_stack = []       # bound proof-var names (Hyp De Bruijn)
         self.counter = 0
+        self.current_deps = None  # set(), collected while translating one entry
 
     def fresh(self, base):
         self.counter += 1
         return f"{base}{self.counter}"
 
+    def resolve_hash(self, h):
+        name = self.hash_to_name[h]
+        if self.current_deps is not None:
+            self.current_deps.add(name)
+        return name
+
+    def resolve_prim(self, i):
+        name = self.prim_to_name[i]
+        if self.current_deps is not None:
+            self.current_deps.add(name)
+        return name
+
 
 def tp_to_lean(node, ctx):
     tag = node[0]
     if tag == "TPVAR":
-        i = int(node[1])
-        return ctx.tp_stack[-(i + 1)]
+        return ctx.tp_stack[-(int(node[1]) + 1)]
     if tag == "PROP":
         return "Prop"
     if tag == "SET":
@@ -89,16 +143,14 @@ def tp_to_lean(node, ctx):
 def tm_to_lean(node, ctx):
     tag = node[0]
     if tag == "DB":
-        i = int(node[1])
-        return ctx.tm_stack[-(i + 1)]
+        return ctx.tm_stack[-(int(node[1]) + 1)]
     if tag == "TMH":
         h = node[1]
         if h not in ctx.hash_to_name:
             raise KeyError(f"unresolved TMH hash (forward or missing reference): {h}")
-        return ctx.hash_to_name[h]
+        return ctx.resolve_hash(h)
     if tag == "PRIM":
-        i = int(node[1])
-        return ctx.prim_to_name[i]
+        return ctx.resolve_prim(int(node[1]))
     if tag == "AP":
         return f"({tm_to_lean(node[1], ctx)} {tm_to_lean(node[2], ctx)})"
     if tag == "LAM":
@@ -125,29 +177,27 @@ def tm_to_lean(node, ctx):
 def pf_to_lean(node, ctx):
     tag = node[0]
     if tag == "HYP":
-        i = int(node[1])
-        return ctx.pf_stack[-(i + 1)]
+        return ctx.pf_stack[-(int(node[1]) + 1)]
     if tag == "KNOWN":
         h = node[1]
         if h not in ctx.hash_to_name:
             raise KeyError(f"unresolved KNOWN hash: {h}")
-        return ctx.hash_to_name[h]
+        return ctx.resolve_hash(h)
     if tag == "PTMAP":
         return f"({pf_to_lean(node[1], ctx)} {tm_to_lean(node[2], ctx)})"
     if tag == "PPFAP":
         return f"({pf_to_lean(node[1], ctx)} {pf_to_lean(node[2], ctx)})"
     if tag == "PLAM":
         v = ctx.fresh("h")
-        ty = tm_to_lean(node[1], ctx)  # the assumed proposition, itself a tm
+        ty = tm_to_lean(node[1], ctx)
         ctx.pf_stack.append(v)
         body = pf_to_lean(node[2], ctx)
         ctx.pf_stack.pop()
         return f"(fun {v} : {ty} => {body})"
     if tag == "TLAM":
-        # NOT type-variable polymorphism (that's PTPLAM, separately). This is
-        # an ordinary forall-introduction inside a proof -- e.g. andI's own
-        # `forall P Q : Prop, ...` binders -- so it shares tm_stack/DB
-        # numbering with the term side, not a fresh type-var stack.
+        # NOT type-variable polymorphism (that's PTPLAM). An ordinary
+        # forall-introduction inside a proof -- shares tm_stack/DB
+        # numbering with the term side.
         v = ctx.fresh("x")
         ty = tp_to_lean(node[1], ctx)
         ctx.tm_stack.append(v)
@@ -155,8 +205,6 @@ def pf_to_lean(node, ctx):
         ctx.tm_stack.pop()
         return f"(fun {v} : {ty} => {body})"
     if tag == "PTPLAM":
-        # The genuine type-variable binder (matches the outer `i` count on
-        # DEF/AXIOM/THM, when it appears explicitly in a proof term).
         v = ctx.fresh("T")
         ctx.tp_stack.append(v)
         body = pf_to_lean(node[1], ctx)
@@ -167,21 +215,28 @@ def pf_to_lean(node, ctx):
     raise NotImplementedError(f"pf: {tag}")
 
 
-def main():
-    text = open(sys.argv[1], encoding="utf-8").read()
-    forms = parse_toplevel_forms(text)
+# ---------------------------------------------------------------- driver
+class Entry:
+    __slots__ = ("name", "text", "deps", "category")
+    def __init__(self, name, text, deps, category):
+        self.name = name
+        self.text = text          # full Lean declaration text
+        self.deps = deps          # names this entry's text refers to
+        self.category = category  # None for prelude items; a TIER_ORDER value for theorems
+
+
+def translate(forms):
     ctx = Ctx()
-    out = []
-    thm_stmt = {}   # name -> translated Lean type, waiting for its PROOF
+    entries = []          # list[Entry], in source order
+    thm_stmt = {}          # name -> (lean_type, ahv, tvs, deps_from_statement)
     ok, fail = 0, 0
     fail_examples = []
 
     def push_tpvars(i):
-        """i-many polymorphic type parameters. Empirically verified against
-        func_ext (2 type params): the FIRST nested type-application at a
-        call site binds the parameter declared LAST in the Lean signature,
-        not first -- so push in reverse, TPVAR 0 ending up as the first
-        (outermost, leftmost) declared Lean parameter."""
+        """Empirically verified against func_ext (2 type params): the
+        FIRST nested type-application at a call site binds the parameter
+        declared LAST in the Lean signature -- push in reverse so TPVAR 0
+        ends up as the first (outermost) declared Lean parameter."""
         names = [ctx.fresh("T") for _ in range(i)]
         ctx.tp_stack.extend(reversed(names))
         return names
@@ -190,12 +245,11 @@ def main():
         if names:
             del ctx.tp_stack[-len(names):]
 
-    def implicit_prefix(names):
-        # EXPLICIT, not implicit ({..}): Megalodon's own term structure
-        # always instantiates a polymorphic type via an explicit TpAp/PTpAp
-        # application node, never leaves it for inference. Using {..} here
-        # made Lean read a later explicit `eq T18 x19` as supplying T18 for
-        # eq's first VALUE argument, not its (implicit) type argument.
+    def explicit_prefix(names):
+        # EXPLICIT (plain parens), not implicit ({..}): Megalodon's own
+        # term structure always instantiates a polymorphic type via an
+        # explicit TpAp/PTpAp application node, never leaves it to
+        # inference.
         return "".join(f"({n} : Type) " for n in names)
 
     for form in forms:
@@ -204,53 +258,62 @@ def main():
             if tag == "PARAM":
                 _, name, h, i, ty = form
                 i = int(i)
+                ctx.current_deps = set()
                 tvs = push_tpvars(i)
                 lty = tp_to_lean(ty, ctx)
                 pop_tpvars(tvs)
-                out.append(f"axiom {name} {implicit_prefix(tvs)}: {lty}")
+                text = f"axiom {name} {explicit_prefix(tvs)}: {lty}"
+                entries.append(Entry(name, text, ctx.current_deps, None))
                 ctx.hash_to_name[h] = name
             elif tag == "AXIOM":
                 _, name, h, i, ty = form
                 i = int(i)
+                ctx.current_deps = set()
                 tvs = push_tpvars(i)
                 lty = tm_to_lean(ty, ctx)
                 pop_tpvars(tvs)
-                out.append(f"axiom {name} {implicit_prefix(tvs)}: {lty}")
+                text = f"axiom {name} {explicit_prefix(tvs)}: {lty}"
+                entries.append(Entry(name, text, ctx.current_deps, None))
                 ctx.hash_to_name[h] = name
             elif tag == "DEF":
                 _, name, h, i, ty, tm = form
                 i = int(i)
+                ctx.current_deps = set()
                 tvs = push_tpvars(i)
                 lty = tp_to_lean(ty, ctx)
                 ltm = tm_to_lean(tm, ctx)
                 pop_tpvars(tvs)
-                out.append(f"noncomputable def {name} {implicit_prefix(tvs)}: {lty} := {ltm}")
+                text = f"noncomputable def {name} {explicit_prefix(tvs)}: {lty} := {ltm}"
+                entries.append(Entry(name, text, ctx.current_deps, None))
                 ctx.hash_to_name[h] = name
             elif tag == "PRIM":
-                # Leading field is PRIM's own index (for later `Prim(i)`
-                # references), NOT a polymorphism count -- PRIM has no
-                # separate i field at all in the OCaml source's print.
                 _, idx, name, h, ty = form
+                ctx.current_deps = set()
                 lty = tp_to_lean(ty, ctx)
-                out.append(f"axiom {name} : {lty}")
+                text = f"axiom {name} : {lty}"
+                entries.append(Entry(name, text, ctx.current_deps, None))
                 ctx.hash_to_name[h] = name
                 ctx.prim_to_name[int(idx)] = name
             elif tag == "THM":
                 _, name, ahv, pfgahv, i, ty = form
                 i = int(i)
+                ctx.current_deps = set()
                 tvs = push_tpvars(i)
                 lty = tm_to_lean(ty, ctx)
                 pop_tpvars(tvs)
-                thm_stmt[name] = (lty, ahv, tvs)
+                thm_stmt[name] = (lty, ahv, tvs, set(ctx.current_deps))
             elif tag == "PROOF":
                 _, name, pf = form
                 if name not in thm_stmt:
                     continue
-                lty, ahv, tvs = thm_stmt[name]
+                lty, ahv, tvs, stmt_deps = thm_stmt[name]
+                ctx.current_deps = set(stmt_deps)
                 ctx.tp_stack.extend(tvs)
                 lpf = pf_to_lean(pf, ctx)
                 pop_tpvars(tvs)
-                out.append(f"theorem {name} {implicit_prefix(tvs)}: {lty} := {lpf}")
+                text = f"theorem {name} {explicit_prefix(tvs)}: {lty} := {lpf}"
+                category = categorise(name, lty, ctx.current_deps)
+                entries.append(Entry(name, text, ctx.current_deps, category))
                 ctx.hash_to_name[ahv] = name
                 ok += 1
         except Exception as e:
@@ -258,24 +321,73 @@ def main():
             if len(fail_examples) < 15:
                 fail_examples.append((tag, form[1] if len(form) > 1 else "?", str(e)[:120]))
             continue
+        finally:
+            ctx.current_deps = None
 
     print(f"translated OK: {ok}  failed: {fail}")
     for t, n, e in fail_examples:
         print(f"  FAIL {t} {n}: {e}")
+    return entries
 
-    with open(sys.argv[2], "w", encoding="utf-8") as f:
-        # `set` is a base sort of Megalodon's own foundation (like Prop),
-        # never declared within the theory itself, so the export never
-        # emits it -- must be seeded by hand, same as the tactic-based
-        # translator's prelude does.
-        # The namespace wrapper is not cosmetic: Megalodon's own `True`/
-        # `False`/etc. definitions would otherwise collide with Lean's
-        # built-in root-level ones of the same name.
-        f.write("set_option maxRecDepth 8000\n\n")
-        f.write("namespace Megalodon\n\n")
-        f.write("axiom set : Type\n\n")
-        f.write("\n".join(out))
-        f.write("\n\nend Megalodon\n")
+
+HEADER = "set_option maxRecDepth 8000\n\nnamespace Megalodon\n\naxiom set : Type\n\n"
+FOOTER = "\nend Megalodon\n"
+
+
+def render(entries):
+    return HEADER + "\n".join(e.text for e in entries) + FOOTER
+
+
+def render_category(all_entries, by_name, tier):
+    """This tier's own theorems, plus the transitive closure of whatever
+    prelude items and cross-category theorems they actually depend on,
+    in original source order -- so the file is self-contained and
+    (intended to be) independently compilable."""
+    own = [e for e in all_entries if e.category == tier]
+    need = set()
+    frontier = list(own)
+    while frontier:
+        e = frontier.pop()
+        for dep_name in e.deps:
+            if dep_name in need:
+                continue
+            need.add(dep_name)
+            if dep_name in by_name:
+                frontier.append(by_name[dep_name])
+    keep_names = need | {e.name for e in own}
+    kept = [e for e in all_entries if e.name in keep_names]
+    lines = [HEADER.rstrip("\n")]
+    for e in kept:
+        tag = "" if e.category is None else (
+            "" if e.category == tier else f"  -- dependency from {e.category}")
+        lines.append(e.text + tag)
+    lines.append(FOOTER.strip("\n"))
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    text = open(sys.argv[1], encoding="utf-8").read()
+    outdir = sys.argv[2]
+    os.makedirs(outdir, exist_ok=True)
+    forms = parse_toplevel_forms(text)
+    entries = translate(forms)
+    by_name = {e.name: e for e in entries}
+
+    with open(os.path.join(outdir, "All.lean"), "w", encoding="utf-8") as f:
+        f.write(render(entries))
+
+    counts = {}
+    for tier in TIER_ORDER:
+        own = sum(1 for e in entries if e.category == tier)
+        counts[tier] = own
+        with open(os.path.join(outdir, f"{tier}.lean"), "w", encoding="utf-8") as f:
+            f.write(render_category(entries, by_name, tier))
+
+    total_thm = sum(counts.values())
+    print("category counts (own theorems, not counting borrowed dependencies):")
+    for tier in TIER_ORDER:
+        print(f"  {tier:12s} {counts[tier]:4d}")
+    print(f"  {'total':12s} {total_thm:4d}")
 
 
 if __name__ == "__main__":

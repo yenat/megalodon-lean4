@@ -10,7 +10,7 @@ reference corpus (`100thms_12.mg`) the main translator uses.
 ## Result
 
 **999 / 999 theorems verified — 100% — with zero `sorry` and zero
-`sorryAx`.** Confirmed by both a full recompile of `All_via_sexpr.lean`
+`sorryAx`.** Confirmed by both a full recompile of `verified_output/All.lean`
 and an independent `#print axioms` pass over every theorem. The only
 axioms used are Megalodon's own 17 foundational ones (`Empty`, `In_ind`,
 `set_ext`, `func_ext`, `prop_ext`, `Eps_i`, `Eps_i_ax`, `UnivOf`, and
@@ -50,8 +50,14 @@ recur here by construction, not by further patching.
 - `sexpr_translate.py` — the translator: an S-expression parser, a
   `tp`/`tm`/`pf` -> Lean 4 term compiler (~230 lines), and a driver that
   reads a `-sexprinfo` dump and writes a single Lean file.
-- `All_via_sexpr.lean` — the full, verified output: all 999 theorems,
-  one file, compiling clean.
+- `verified_output/` — the full, verified output: `All.lean` (all 999
+  theorems, one file, authoritative) plus `prop_logic.lean` /
+  `set_theory.lean` / `nat_arith.lean` / `ordinals.lean` /
+  `surreals.lean`, each including only the prelude items and
+  cross-category theorems it actually depends on. All six files
+  compile standalone with zero errors -- unlike the tactic-based
+  translator's category split, which has a known cross-dependency gap
+  (see the main README's Limitations).
 - `sample_output.sexpr` — a small sample of the raw `-sexprinfo` input,
   for inspecting the format without rebuilding Megalodon.
 
@@ -68,8 +74,8 @@ git apply /path/to/pf_to_sexpr.patch
 bin/megalodon -sexprinfo /path/to/100thms_12.mg > corpus.sexpr
 
 # 3. translate and verify
-python3 sexpr_translate.py corpus.sexpr All_via_sexpr.lean
-lean -D maxErrors=20000 All_via_sexpr.lean   # should print nothing
+python3 sexpr_translate.py corpus.sexpr verified_output/
+lean -D maxErrors=20000 verified_output/All.lean   # should print nothing
 ```
 
 ## Known rough edges (not blocking correctness, worth cleaning up)
@@ -77,8 +83,11 @@ lean -D maxErrors=20000 All_via_sexpr.lean   # should print nothing
 - Generated names are opaque (`x144`, `h91`, `T21`) rather than
   Megalodon's original binder names — cosmetic, produces some harmless
   unused-variable lint warnings, doesn't affect verification.
-- No per-category split yet (the main translator's `All.lean` /
-  `prop_logic.lean` / etc. structure) — everything is one file.
+- Category boundaries reuse the tactic-based translator's vocabulary
+  heuristic (`DOMAIN`/`PROP_VOCAB` regexes), applied to each theorem's
+  name, translated statement, and cited dependency names rather than its
+  original Megalodon proof text. Close to the old translator's category
+  sizes but not identical — heuristic, not exact, same as the original.
 - No automated prune-on-error loop yet; today's fixes were each found
   and fixed by hand from a single full-corpus compile's error output.
   For a corpus this well-behaved that was fast enough, but a real
@@ -86,12 +95,26 @@ lean -D maxErrors=20000 All_via_sexpr.lean   # should print nothing
   would be the right thing before pointing this at a much larger corpus.
 - `set_option maxRecDepth 8000` is set globally because two theorems
   needed it; a per-theorem `set_option ... in` would be more precise.
+- Only tested against files that are fully self-contained, like
+  `100thms_12.mg` itself. Most files in the wider mgwiki library
+  (`mglib/`) are fragments that depend on a shared cross-file index or
+  `$I`-included signature files built up by the wiki's own CI in a
+  specific order; Megalodon itself rejects running them standalone
+  (fails at the export step, before this translator ever runs),
+  independent of anything in this translator. Confirmed on two such files
+  (`NoInitialMonoid.mg`, `TwoRamseyProp_3_5_14.mg`) — both fail identically
+  on `ordsucc`'s expected content hash not being pre-registered.
+  Supporting arbitrary mgwiki files would mean replicating that indexing
+  step, not a translator change.
 
 ## What this doesn't replace yet
 
 This is a second, independent translator, not a drop-in replacement for
-`megalodon_full.py` — it doesn't yet do category splitting, the
-per-category standalone-compile check, or produce the same output layout.
-Turning it into the project's primary path is real follow-up work, not
-attempted here. What's proven is that the *approach* is not just correct
-in theory but correct in practice, on the actual reference corpus, today.
+`megalodon_full.py` — it now matches its output layout (`All.lean` plus
+per-category files, all compiling standalone, actually without the older
+translator's known cross-category gap), but still lacks the automated
+prune-on-error loop and only handles self-contained input files (see
+above). Turning it into the project's primary path, and extending it to
+the wider mgwiki library, are the next real pieces of work. What's proven
+is that the *approach* is not just correct in theory but correct in
+practice, on the actual reference corpus, today.

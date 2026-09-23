@@ -245,7 +245,9 @@ run can look like a successful one.
 **`sexprinfo-prototype`'s result (999/999):**
 
 ```bash
-lean -D maxErrors=20000 sexprinfo-prototype/All_via_sexpr.lean
+lean -D maxErrors=20000 sexprinfo-prototype/verified_output/All.lean
+# or any one category standalone, e.g.:
+lean -D maxErrors=20000 sexprinfo-prototype/verified_output/surreals.lean
 ```
 
 Should print nothing. Full reproduction from source (rebuilding the patched
