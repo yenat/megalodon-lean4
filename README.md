@@ -190,16 +190,23 @@ output entirely, so no file contains an unproved claim.
 
 ### Where this goes next
 
-The translator currently works from Megalodon's surface `.mg` text, hand-parsed
-with bracket-counting scanners (see "Nested syntax needs scanners, not
-regexes" above). Megalodon can instead export typed, de-Bruijn, content-
-addressed terms directly (`-sexprinfo`), which would remove this whole class
-of surface-syntax risk (precedence, notation, binder edge cases) at the root,
-and would let proofs be translated as terms rather than mapped tactic by
-tactic — the natural fix for the surreal-number gap above, where scripted
-tactic proofs are long and easy to get subtly wrong. This is a substantial
-rework of the translator's front end, not a small patch, and is tracked as
-future work rather than attempted piecemeal.
+**Update: done, and it worked.** This translator works from Megalodon's
+surface `.mg` text, hand-parsed with bracket-counting scanners (see "Nested
+syntax needs scanners, not regexes" above) — a real source of risk
+(precedence, notation, binder edge cases), and the root cause of every bug
+fixed in the "Recent fixes" section. The natural fix was to translate from
+Megalodon's own typed, de-Bruijn, content-addressed proof export
+(`-sexprinfo`) instead, as proof terms rather than tactic scripts. That's no
+longer a proposal: `sexprinfo-prototype/` is a second, working translator
+built exactly this way, and it verifies **999/999 theorems (100%)** on this
+same reference corpus, including the entire surreal-number category that is
+this translator's persistent weak point. See `sexprinfo-prototype/README.md`
+for the full result and how to reproduce it.
+
+What's left is integration, not proof-of-concept: category splitting, a
+proper prune-on-error loop, and readable generated names, so it can replace
+`megalodon_full.py` as this project's primary path rather than sit alongside
+it. Tracked as the next real piece of work.
 
 ---
 
