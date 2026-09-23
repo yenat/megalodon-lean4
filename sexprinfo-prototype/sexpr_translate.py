@@ -215,6 +215,69 @@ def pf_to_lean(node, ctx):
     raise NotImplementedError(f"pf: {tag}")
 
 
+# --------------------------------------------------- statement round-trip
+def _render_sexpr(node):
+    if isinstance(node, str):
+        return node
+    return "(" + " ".join(_render_sexpr(c) for c in node) + ")"
+
+
+def audit_hash_consistency(forms):
+    """Megalodon content-addresses every declaration: two declarations
+    that Megalodon considers definitionally the same statement get the
+    same hash (we found 8 such pairs in the reference corpus, e.g.
+    `pair_Sigma` and `lamI`). That hash is ground truth independent of
+    this translator. This check uses it as one: for every hash claimed
+    by more than one PARAM/AXIOM/DEF/PRIM/THM, verify the raw statement
+    s-expressions are structurally identical.
+
+    Since translation is a deterministic, purely structural function of
+    that s-expression (no surface text, no ambiguity to resolve), byte-
+    identical raw structure guarantees shape-identical Lean output --
+    so this transitively confirms the translator treats every such pair
+    consistently, without needing to separately diff the rendered Lean
+    text (which would differ cosmetically in fresh variable numbering
+    even when the shape is identical).
+
+    This is *a* statement-level round-trip check, not a complete one: it
+    catches inconsistent handling of declarations Megalodon itself says
+    are identical, not e.g. a translator bug that is wrong the same way
+    for every input (which Lean's kernel also can't catch, since a
+    self-consistent mistranslation still type-checks against itself).
+    """
+    claims = {}  # hash -> [(tag, name, raw_ty_sexpr_node), ...]
+    for form in forms:
+        tag = form[0]
+        if tag in ("PARAM", "AXIOM"):
+            name, h, i, ty = form[1], form[2], form[3], form[4]
+            claims.setdefault(h, []).append((tag, name, ty))
+        elif tag == "DEF":
+            name, h, i, ty, tm = form[1], form[2], form[3], form[4], form[5]
+            claims.setdefault(h, []).append((tag, name, ty))
+        elif tag == "PRIM":
+            idx, name, h, ty = form[1], form[2], form[3], form[4]
+            claims.setdefault(h, []).append((tag, name, ty))
+        elif tag == "THM":
+            name, ahv, pfgahv, i, ty = form[1], form[2], form[3], form[4], form[5]
+            claims.setdefault(ahv, []).append((tag, name, ty))
+
+    collisions = {h: v for h, v in claims.items() if len(v) > 1}
+    mismatches = []
+    for h, entries in collisions.items():
+        raws = [_render_sexpr(ty) for _, _, ty in entries]
+        if any(r != raws[0] for r in raws):
+            mismatches.append((h, entries))
+
+    print(f"statement round-trip audit: {len(claims)} declarations, "
+          f"{len(collisions)} share a hash with at least one other, "
+          f"{len(mismatches)} of those disagree on raw structure")
+    for h, entries in mismatches:
+        names = [n for _, n, _ in entries]
+        print(f"  MISMATCH {h[:16]}...: {names}  <- these share a hash but "
+              f"have different statement structure, investigate")
+    return len(mismatches) == 0
+
+
 # ---------------------------------------------------------------- driver
 class Entry:
     __slots__ = ("name", "text", "deps", "category")
@@ -370,6 +433,14 @@ def main():
     outdir = sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
     forms = parse_toplevel_forms(text)
+
+    consistent = audit_hash_consistency(forms)
+    if not consistent:
+        print("REFUSING TO TRANSLATE: statement round-trip audit found a "
+              "real mismatch (see above). Fix it before trusting the "
+              "output.")
+        sys.exit(1)
+
     entries = translate(forms)
     by_name = {e.name: e for e in entries}
 

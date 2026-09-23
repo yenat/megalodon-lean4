@@ -21,6 +21,14 @@ This includes every theorem in the surreal-number category, which was the
 tactic-based translator's persistent weak point (23-24% all day) — here
 it's 593/593.
 
+Also includes a statement-level round-trip check (`audit_hash_consistency`):
+Megalodon content-addresses every declaration, so two declarations it
+considers definitionally identical share a hash — the reference corpus has
+8 such pairs (e.g. `pair_Sigma` and `lamI`). The translator verifies all 8
+are structurally identical at the raw s-expression level, and refuses to
+run if it ever finds a real mismatch, rather than silently trusting that
+"Lean accepted it" is the same thing as "it's the right statement."
+
 ## Why this works where the surface-text translator struggles
 
 The tactic-based translator (`megalodon_full.py`) hand-parses Megalodon's
@@ -98,14 +106,36 @@ lean -D maxErrors=20000 verified_output/All.lean   # should print nothing
 - Only tested against files that are fully self-contained, like
   `100thms_12.mg` itself. Most files in the wider mgwiki library
   (`mglib/`) are fragments that depend on a shared cross-file index or
-  `$I`-included signature files built up by the wiki's own CI in a
-  specific order; Megalodon itself rejects running them standalone
-  (fails at the export step, before this translator ever runs),
-  independent of anything in this translator. Confirmed on two such files
-  (`NoInitialMonoid.mg`, `TwoRamseyProp_3_5_14.mg`) — both fail identically
-  on `ordsucc`'s expected content hash not being pre-registered.
-  Supporting arbitrary mgwiki files would mean replicating that indexing
-  step, not a translator change.
+  `$I`-included signature files; Megalodon itself rejects running them
+  standalone (fails at the export step, before this translator ever
+  runs), independent of anything in this translator. Confirmed on two
+  such files (`NoInitialMonoid.mg`, `TwoRamseyProp_3_5_14.mg`) — both
+  fail identically on `ordsucc`'s expected content hash not being
+  pre-registered.
+
+  **This is fixable in principle, and partially demonstrated working:**
+  Megalodon has a real, built-in mechanism for exactly this
+  (`-indout <file>` writes an index of everything a file establishes;
+  `-ind <file>` loads it so a later file can reference those hashes).
+  Tested directly: building an index from `100thms_12.mg` and feeding it
+  to `NoInitialMonoid.mg` moved its failure point forward by 96 lines
+  (from `ordsucc` to a later identifier, `pack_b`); tracing `pack_b` to
+  its source (`sig/PfgEAug2022Preamble.mgs`) and adding it moved the
+  failure forward again (to line 238). Chasing this further hit a wall
+  worth stating plainly: even `sig/Part1.mgs`, the most foundational file
+  in the wiki's own signature chain with zero declared includes, fails
+  the same way on a different identifier (`exactly1of2`) against a
+  freshly-built `megalodon` binary. That means these files were checked
+  against a canonical index state (a specific deployed instance of the
+  wiki, or an older/different build with a larger built-in hash table)
+  that a from-source build doesn't reproduce on its own — not something
+  more local chaining can fix. Supporting arbitrary mgwiki files would
+  need either the wiki's own canonical index export (if one is published
+  somewhere) or the specific historical Megalodon build these files were
+  authored against, neither of which is available in this environment.
+  Supporting a *specific* file or small set of files, where the
+  dependency chain is short, is straightforwardly doable with `-ind`/
+  `-indout` as demonstrated above.
 
 ## What this doesn't replace yet
 

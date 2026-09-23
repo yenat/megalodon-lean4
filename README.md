@@ -56,6 +56,10 @@ Requires Python 3.8+ (standard library only) and Lean 4 on `PATH`
 | Surreal numbers | 145 | 593 | 24% |
 | **Total** | **529** | **999** | **52.9%** |
 
+Of the 529, 526 translated and verified directly; 3 were recovered by the
+seeded-proof-search fallback (see stage 7, `recover()`) after their ported
+proof failed but the statement still typechecked.
+
 ### Recent fixes
 
 Four real, independently-verified translation bugs, each found by tracing an
