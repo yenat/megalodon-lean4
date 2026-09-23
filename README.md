@@ -5,7 +5,20 @@ A deterministic translator that converts theorems from the
 Lean 4, **and machine-checks every result**. Nothing is reported as translated
 unless Lean compiled it.
 
-On the reference corpus (`100thms_12.mg`, 999 theorems) it currently produces
+**Update: a second, proof-term-based translator (`sexprinfo-prototype/`)
+now verifies 999 / 999 theorems on the same reference corpus — 100%, zero
+`sorry`, zero `sorryAx`.** It works from Megalodon's own structured,
+already-typed proof export instead of hand-parsed source text, which
+removes the whole class of surface-syntax bug the translator below is
+still subject to. See `sexprinfo-prototype/README.md` for the full
+writeup; it is a second, independent implementation, not yet integrated
+as this project's primary path (no category splitting, no prune-on-error
+loop yet), so the numbers below still describe what `megalodon_full.py`
+itself produces.
+
+On the reference corpus (`100thms_12.mg`, 999 theorems) the translator in
+this directory (`megalodon_full.py`, hand-parsed surface syntax +
+tactic-script translation) currently produces
 **529 verified theorems — 52.9% — with zero `sorry` and zero `sorryAx`.**
 
 ---
