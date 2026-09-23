@@ -6,7 +6,7 @@ Lean 4, **and machine-checks every result**. Nothing is reported as translated
 unless Lean compiled it.
 
 On the reference corpus (`100thms_12.mg`, 999 theorems) it currently produces
-**500 verified theorems — 50.0% — with zero `sorry` and zero `sorryAx`.**
+**529 verified theorems — 52.9% — with zero `sorry` and zero `sorryAx`.**
 
 ---
 
@@ -37,11 +37,41 @@ Requires Python 3.8+ (standard library only) and Lean 4 on `PATH`
 | Category | verified | of | coverage |
 |---|---|---|---|
 | Propositional logic | 39 | 39 | **100%** |
-| Set theory | 189 | 203 | 93% |
-| Natural numbers | 87 | 104 | 84% |
-| Ordinals | 46 | 60 | 77% |
-| Surreal numbers | 139 | 593 | 23% |
-| **Total** | **500** | **999** | **50.0%** |
+| Set theory | 200 | 203 | 99% |
+| Natural numbers | 96 | 104 | 92% |
+| Ordinals | 49 | 60 | 82% |
+| Surreal numbers | 145 | 593 | 24% |
+| **Total** | **529** | **999** | **52.9%** |
+
+### Recent fixes
+
+Four real, independently-verified translation bugs, each found by tracing an
+actual Lean compile error back to its cause rather than guessing:
+
+- **`witness` tactic parenthesization.** Megalodon's `witness t` accepts a
+  bare, unparenthesized application (`witness f w`); the translator spliced
+  that straight into Lean's `apply _wH f w`, which Lean reads as two curried
+  arguments instead of one. Fixed by parenthesizing the witness term. This
+  was the single largest fix (first-pass clean theorems roughly doubled).
+- **A `sorryAx` leak in the recovery fallback.** The seeded-proof-search
+  recovery step could hint `solve_by_elim` with a lemma name that had
+  already been deleted for failing elsewhere. Citing a nonexistent name
+  inside a hint list doesn't reliably surface as a hard compile error in
+  Lean 4 — it can silently degrade to a hidden placeholder instead, which
+  only showed up in the axiom audit (`sorryAx` present) rather than as a
+  compile failure. Fixed by restricting recovery hints to names that
+  actually survived pruning.
+- **Nested-tuple misdetection.** `(A, fun x => B)` — a Megalodon pair whose
+  component contains a lambda — was being left untranslated as Lean's
+  native tuple type instead of Megalodon's own set-encoded pair, because the
+  heuristic that guards against ambiguous binder commas matched `fun`
+  anywhere in a part, even when safely nested inside its own parens. Fixed
+  by making that check depth-aware.
+- **Primed identifiers in typed `intro`.** `intro Hw': w' :e L` (Megalodon's
+  inline type-ascription form) was supposed to have its type annotation
+  stripped before reaching Lean, but the stripping regex's character class
+  didn't include the apostrophe, so primed names like `Hw'` never matched
+  and the invalid syntax leaked straight through.
 
 Verified means: the file compiles under Lean with no errors, contains no
 `sorry`, and `#print axioms` shows no `sorryAx`. The only axioms used are
@@ -54,8 +84,8 @@ Megalodon does not itself assume.
 ```
 lean_out/
   Prelude.lean      definitions, axioms and notation, translated
-  All.lean          every verified theorem, once, in source order
-  prop_logic.lean   per-category files, each compiling standalone
+  All.lean          every verified theorem, once, in source order -- authoritative
+  prop_logic.lean   per-category files (see Limitations: not all compile standalone yet)
   set_theory.lean
   nat_arith.lean
   ordinals.lean
@@ -65,7 +95,7 @@ lean_out/
 Each category file carries the cross-category lemmas its proofs cite, marked
 `-- dependency from <category>`, plus only the prelude declarations those
 proofs reach. **`All.lean` is authoritative**: per-category files repeat
-borrowed lemmas, so their theorem counts sum to more than 500.
+borrowed lemmas, so their theorem counts sum to more than 529.
 
 ---
 
@@ -123,18 +153,40 @@ Megalodon and Lean disagree in ways that are easy to get subtly wrong:
 
 ## Limitations
 
-- **Surreal numbers are 23%**, and account for 454 of the 499 failures.
-  They rest on a deep recursion stack (`SNo_rec_i`, `SNo_rec2`, `PNo`) where
-  individual proof-level mismatches remain.
-- **45 non-surreal theorems fail**, of which about two-thirds depend on a
-  surreal lemma that itself fails.
+- **Surreal numbers are 24%**, and account for 448 of the 470 failures.
+  Individually traced proofs in this category commonly mix several distinct
+  translation issues in one long tactic script (a single 1,300-line proof
+  was found to trigger five different error types), rather than one shared
+  root cause, so each further gain here costs proportionally more than the
+  fixes above did.
+- **22 non-surreal theorems fail**, most independently rather than as a
+  cascade from a single surreal dependency.
 - **Positional rewriting is partial.** `rewrite H at 2` maps to Lean's
   occurrence-selective `rw`, but some goal-state divergences remain.
 - **Categories are heuristic.** Theorems are filed by the vocabulary they use;
   the boundaries are approximate, though no longer a catch-all bucket.
+- **Per-category files do not all compile fully standalone yet.** `All.lean`
+  is the authoritative, fully verified output. The per-category split
+  (stage 8) is known to miss some cross-category dependencies for a handful
+  of theorems in the larger categories — a real, pre-existing gap in the
+  splitting logic, not in the underlying proofs, which are only ever counted
+  as verified based on `All.lean`.
 
 Failures are never hidden: a theorem that does not compile is removed from the
 output entirely, so no file contains an unproved claim.
+
+### Where this goes next
+
+The translator currently works from Megalodon's surface `.mg` text, hand-parsed
+with bracket-counting scanners (see "Nested syntax needs scanners, not
+regexes" above). Megalodon can instead export typed, de-Bruijn, content-
+addressed terms directly (`-sexprinfo`), which would remove this whole class
+of surface-syntax risk (precedence, notation, binder edge cases) at the root,
+and would let proofs be translated as terms rather than mapped tactic by
+tactic — the natural fix for the surreal-number gap above, where scripted
+tactic proofs are long and easy to get subtly wrong. This is a substantial
+rework of the translator's front end, not a small patch, and is tracked as
+future work rather than attempted piecemeal.
 
 ---
 

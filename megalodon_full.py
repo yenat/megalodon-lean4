@@ -361,6 +361,20 @@ def convert_ite(s):
 TUPLE_BAD = re.compile(r"\b(forall|exists|fun|if|then|else)\b|=>|\||:")
 
 
+def _depth0_mask(p):
+    """`p` with anything inside nested (...)/[...] blanked out, so a keyword
+    search only sees what sits at THIS bracket's own top level."""
+    out, depth = [], 0
+    for ch in p:
+        if ch in "([":
+            depth += 1; out.append(ch)
+        elif ch in ")]":
+            depth -= 1; out.append(ch)
+        else:
+            out.append(ch if depth == 0 else " ")
+    return "".join(out)
+
+
 def convert_tuples(s, lam="Sigma", eq="\u2250"):
     """`(a,b)` is Megalodon's TUPLE: a set-lambda over the index set.
 
@@ -406,7 +420,11 @@ def convert_tuples(s, lam="Sigma", eq="\u2250"):
             else:
                 buf += ch
         parts.append(buf)
-        if len(parts) >= 2 and all(p.strip() and not TUPLE_BAD.search(p)
+        # A binder keyword (`fun`, `forall`, ...) only makes a comma
+        # ambiguous when it sits at THIS bracket's own top level -- one
+        # safely nested inside its own parens, e.g. `(Repl X (fun w => g w))`,
+        # cannot bleed into the enclosing comma and is not a real hazard.
+        if len(parts) >= 2 and all(p.strip() and not TUPLE_BAD.search(_depth0_mask(p))
                                    for p in parts):
             n = len(parts)
             body = parts[-1].strip()
@@ -1007,7 +1025,15 @@ def translate_tactics(lines, conv, indent=2):
                 if mw:
                     t = conv.expr(mw.group(1))
                     out.append("%sintro _wP _wH" % pad)
-                    out.append("%sapply _wH %s" % (pad, t))
+                    # Megalodon's `witness` tactic accepts a bare,
+                    # unparenthesized application (`witness f w`). Lean's
+                    # `apply` reads space-separated tokens as separate
+                    # curried arguments, so `apply _wH f w` parses as
+                    # `(_wH f) w` instead of `_wH (f w)`. Parenthesizing
+                    # the whole witness term disambiguates it -- and is a
+                    # no-op (redundant but harmless) when `t` was already a
+                    # single token or already parenthesized.
+                    out.append("%sapply _wH (%s)" % (pad, t))
                     first = False
                     continue
                 # `rewrite H at 2` rewrites only the 2nd occurrence.
@@ -1034,7 +1060,11 @@ def translate_tactics(lines, conv, indent=2):
                 # proof -- but Lean works up to defeq anyway, so make it
                 # advisory rather than load-bearing.
                 part = re.sub(r"^prove\b", "try show", part)
-                part = re.sub(r"^intro\s+([\w\s]+?)\s*:.*$", r"intro \1", part)
+                # [\w\s] alone misses primed names (`Hw'`, `w'`), which are
+                # idiomatic here -- so `intro Hw': w' :e L` never matched and
+                # the type annotation leaked straight through as invalid
+                # Lean syntax (`intro` takes bare names, not `name : type`).
+                part = re.sub(r"^intro\s+([\w\s']+?)\s*:.*$", r"intro \1", part)
                 part = conv.expr(part)
                 # Two Megalodon idioms do not survive the mapping onto Lean's
                 # native connectives:
@@ -1283,6 +1313,19 @@ def recover(path, prelude, survivors, failed, lean_exe, seeds, budget=2400):
     """
     start = time.time()
     recovered, remaining = [], list(failed)
+    # Seed names are collected from every Theorem/Definition/Axiom/Parameter
+    # DECLARED anywhere in the corpus, regardless of whether that theorem's
+    # own translation survived pruning. Citing a since-deleted name as a
+    # solve_by_elim HINT does not reliably surface as a hard compile error --
+    # Lean can silently fall back to a synthetic `sorry` for an unresolvable
+    # hint while the overall tactic still reports success, which slips past
+    # this function's error-range check and only shows up later in the
+    # axiom audit as `sorryAx`. Restricting hints to names that are actually
+    # present among survivors (i.e. really exist in the file being compiled)
+    # closes that hole at the source instead of relying on a downstream audit
+    # to catch it.
+    alive_names = {n for n, _ in survivors}
+    seeds = {n: [s for s in v if s in alive_names] for n, v in seeds.items()}
     nslots = max(len(strategies_for(seeds.get(n) or [])) for n, _ in failed) \
         if failed else 0
     for k in range(nslots):
