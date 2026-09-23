@@ -212,17 +212,24 @@ it. Tracked as the next real piece of work.
 
 ## Files
 
+This directory holds two independent translators against the same
+reference corpus — see "Where this goes next" above for how they compare.
+
 | File | Purpose |
 |---|---|
-| `megalodon_full.py` | the translator (single file, standard library only) |
-| `verify_output.sh` | independent verification and axiom audit |
-| `100thms_12.mg` | reference corpus, 999 theorems |
+| `megalodon_full.py` | the surface-text, tactic-script translator (529/999) |
+| `verify_output.sh` | independent verification and axiom audit, for `megalodon_full.py`'s output |
+| `100thms_12.mg` | reference corpus, 999 theorems, shared by both translators |
+| `sexprinfo-prototype/` | the proof-term translator (999/999) — see its own README for its files |
 
 ---
 
 ## Verifying the claims yourself
 
+**`megalodon_full.py`'s result (529/999):**
+
 ```bash
+python3 megalodon_full.py 100thms_12.mg --output ./lean_out
 ./verify_output.sh lean_out
 ```
 
@@ -234,3 +241,13 @@ one that matters.
 Note: the in-file `set_option maxErrors` is ignored by Lean; the limit must be
 passed on the command line, or Lean stops after 100 errors and an incomplete
 run can look like a successful one.
+
+**`sexprinfo-prototype`'s result (999/999):**
+
+```bash
+lean -D maxErrors=20000 sexprinfo-prototype/All_via_sexpr.lean
+```
+
+Should print nothing. Full reproduction from source (rebuilding the patched
+Megalodon binary, regenerating the export, re-running the translator) and the
+axiom-audit command are in `sexprinfo-prototype/README.md`.
