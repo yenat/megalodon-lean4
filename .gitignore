@@ -5,6 +5,11 @@ lean_*/
 __pycache__/
 *.pyc
 
+# sexprinfo-prototype: the compiled binary is large and reproducible from
+# pf_to_sexpr.patch (see sexprinfo-prototype/README.md); sample_output.sexpr
+# (small, ~500KB) is tracked so the format is visible without rebuilding
+sexprinfo-prototype/megalodon-with-proofs
+
 # never commit credentials
 .env
 *_api_key*
