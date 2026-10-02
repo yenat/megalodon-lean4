@@ -6,15 +6,34 @@ Lean 4, **and machine-checks every result**. Nothing is reported as translated
 unless Lean compiled it.
 
 **Update: a second, proof-term-based translator (`sexprinfo-prototype/`)
-now verifies 999 / 999 theorems on the same reference corpus — 100%, zero
-`sorry`, zero `sorryAx`.** It works from Megalodon's own structured,
+verifies 3333 theorems across three corpora — zero Lean errors, zero
+`sorry`, zero `sorryAx` — and every result is checked back against
+Megalodon's own content hashes.** It works from Megalodon's structured,
 already-typed proof export instead of hand-parsed source text, which
 removes the whole class of surface-syntax bug the translator below is
-still subject to. See `sexprinfo-prototype/README.md` for the full
-writeup; it is a second, independent implementation, not yet integrated
-as this project's primary path (no category splitting, no prune-on-error
-loop yet), so the numbers below still describe what `megalodon_full.py`
-itself produces.
+still subject to.
+
+| corpus | theorems | statements identical | proofs identical | hashes matching |
+|---|---|---|---|---|
+| `100thms_12.mg` | 999 | 1158 / 1158 | 999 / 999 | 1151 / 1151 |
+| mgwiki `Part1`–`Part14` | 1401 | 1600 / 1600 | 1401 / 1401 | 1593 / 1593 |
+| mgwiki `topology_begin_…` | 933 | 2347 / 2347 | 933 / 933 | 2340 / 2340 |
+
+"Hashes matching" is the claim worth reading twice. The translated Lean is
+elaborated by Lean, read back out of Lean's own `Expr`, reconstructed as
+Megalodon s-expressions, and re-hashed by **Megalodon's own hashing code**
+— every id identical to the one Megalodon originally assigned. The
+reverse direction is deliberately not an inverse of the forward map, since
+a mistranslation wrong the same way in both directions would round-trip
+perfectly; routing it through Lean's elaborator makes Lean an independent
+witness. A negative control confirms the check discriminates: 5030 / 5030
+perturbed terms get a different hash.
+
+See `sexprinfo-prototype/README.md` for the full writeup, including the
+three real bugs this found that Lean's kernel could not have caught. It
+remains a second, independent implementation rather than this project's
+primary path (no prune-on-error loop), so the numbers below still describe
+what `megalodon_full.py` itself produces.
 
 On the reference corpus (`100thms_12.mg`, 999 theorems) the translator in
 this directory (`megalodon_full.py`, hand-parsed surface syntax +
@@ -205,12 +224,15 @@ longer a proposal: `sexprinfo-prototype/` is a second, working translator
 built exactly this way, and it verifies **999/999 theorems (100%)** on this
 same reference corpus, including the entire surreal-number category that is
 this translator's persistent weak point. See `sexprinfo-prototype/README.md`
-for the full result and how to reproduce it.
+for the full result and how to reproduce it — it has since gone further,
+to 3333 theorems across three corpora with every Megalodon content hash
+reproduced.
 
-What's left is integration, not proof-of-concept: category splitting, a
-proper prune-on-error loop, and readable generated names, so it can replace
-`megalodon_full.py` as this project's primary path rather than sit alongside
-it. Tracked as the next real piece of work.
+What's left is integration, not proof-of-concept. Category splitting is
+done; so is reaching the wider mgwiki library (26 of its 31 files). What
+remains is a proper prune-on-error loop and readable generated names, so
+it can replace `megalodon_full.py` as this project's primary path rather
+than sit alongside it. Tracked as the next real piece of work.
 
 ---
 
@@ -224,6 +246,7 @@ reference corpus — see "Where this goes next" above for how they compare.
 | `megalodon_full.py` | the surface-text, tactic-script translator (529/999) |
 | `verify_output.sh` | independent verification and axiom audit, for `megalodon_full.py`'s output |
 | `100thms_12.mg` | reference corpus, 999 theorems, shared by both translators |
+| `sexprinfo-prototype/` | the proof-term translator, the reverse direction, and the content-hash check |
 | `sexprinfo-prototype/` | the proof-term translator (999/999) — see its own README for its files |
 
 ---
