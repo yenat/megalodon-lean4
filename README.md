@@ -247,6 +247,7 @@ reference corpus — see "Where this goes next" above for how they compare.
 | `verify_output.sh` | independent verification and axiom audit, for `megalodon_full.py`'s output |
 | `100thms_12.mg` | reference corpus, 999 theorems, shared by both translators |
 | `sexprinfo-prototype/` | the proof-term translator, the reverse direction, and the content-hash check |
+| `sexprinfo-prototype/APPENDIX.md` | reference for every tag in Megalodon's `-sexprinfo` format |
 | `sexprinfo-prototype/` | the proof-term translator (999/999) — see its own README for its files |
 
 ---

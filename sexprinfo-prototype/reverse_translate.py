@@ -353,7 +353,19 @@ class Reverser:
         if h == "lam":
             tag = self.binder_tag(e[2], ctx)
             if tag == "tp":
-                return ["PTPLAM", self.pf(e[3], ctx + ["tp"])]
+                # Megalodon's `pf` type has exactly seven constructors and
+                # no type-lambda: type abstraction in a proof is carried by
+                # the arity field of the enclosing declaration (`ppf = int
+                # * pf`) and only materialises as `Mathdata.PTpLam` inside
+                # the hashing representation, never as a surface tag. So a
+                # `(T : Type)` binder here is not something to encode -- it
+                # means `peel` did not strip all the leading type
+                # parameters, which is a bug to fix rather than a term to
+                # translate.
+                raise Mismatch(
+                    "type-lambda inside a proof: Megalodon has no surface "
+                    "constructor for this; the leading (T : Type) binders "
+                    "should have been peeled as the declaration's arity")
             if tag == "tm":
                 return ["TLAM", self.tp(e[2], ctx), self.pf(e[3], ctx + ["tm"])]
             return ["PLAM", self.tm(e[2], ctx), self.pf(e[3], ctx + ["pf"])]

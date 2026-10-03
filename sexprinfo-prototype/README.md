@@ -213,9 +213,10 @@ proofs that make up most of the surreal-number category.
 
 This translator instead consumes Megalodon's own already-elaborated,
 already-typed proof *term* — a small, closed set of constructors
-(`DB`/`Ap`/`Lam`/`Imp`/`All` for terms; `Hyp`/`Known`/`PLam`/`PPfAp`/
-`PTmAp`/`TLam`/`PTpLam`/`PTpAp` for proofs), each theorem's proof
-referencing earlier facts by content hash rather than by name. There is
+(`DB`/`TmH`/`Prim`/`TpAp`/`Ap`/`Lam`/`Imp`/`All` for terms;
+`Hyp`/`Known`/`PTpAp`/`PTmAp`/`PPfAp`/`PLam`/`TLam` for proofs, which is
+all seven of them), each theorem's proof referencing earlier facts by
+content hash rather than by name. `APPENDIX.md` documents every tag. There is
 no surface syntax left to mis-parse, so this entire class of bug cannot
 recur here by construction, not by further patching.
 
@@ -239,6 +240,12 @@ recur here by construction, not by further patching.
   (see the main README's Limitations).
 - `sample_output.sexpr` — a small sample of the raw `-sexprinfo` input,
   for inspecting the format without rebuilding Megalodon.
+- `APPENDIX.md` — reference for every tag in the `-sexprinfo` format
+  (`THM`, `DELTA`, `TLAM`, `PPFAP`, `PTMAP`, …): what each stands for,
+  its argument layout, the three separate variable namespaces, the
+  primitive table, and the correspondence with Proofgold `.pfg`
+  documents. Taken from Megalodon's own emitters, and checked complete
+  against all 27 exported corpus files.
 
 Reverse direction and hash checking:
 
