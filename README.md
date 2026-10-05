@@ -248,6 +248,7 @@ reference corpus — see "Where this goes next" above for how they compare.
 | `100thms_12.mg` | reference corpus, 999 theorems, shared by both translators |
 | `sexprinfo-prototype/` | the proof-term translator, the reverse direction, and the content-hash check |
 | `sexprinfo-prototype/APPENDIX.md` | reference for every tag in Megalodon's `-sexprinfo` format |
+| `walkthrough/` | an 11-page code walkthrough of the proof-term translator, Steps 0-7, and the script that generates it |
 | `sexprinfo-prototype/` | the proof-term translator (999/999) — see its own README for its files |
 
 ---
