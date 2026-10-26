@@ -18,6 +18,7 @@ import tempfile
 import os
 
 AP = re.compile(r'\(AP (\([^()]*\)) (\([^()]*\))\)')
+NAME = re.compile(r'\(RECON "([^"]+)"')
 
 
 def perturb(line):
@@ -29,6 +30,10 @@ def perturb(line):
 
 def hashes(hashcheck, path):
     out = subprocess.run([hashcheck, path], capture_output=True, text=True)
+    if out.returncode != 0:
+        print("hashcheck failed on %s (exit %d): %s"
+              % (path, out.returncode, out.stderr.strip()[:300]))
+        sys.exit(1)
     d = {}
     for line in out.stdout.splitlines():
         p = line.split()
@@ -45,22 +50,30 @@ def main():
     tmp = tempfile.mkdtemp()
     orig_p = os.path.join(tmp, "orig.txt")
     pert_p = os.path.join(tmp, "pert.txt")
-    orig, pert = [], []
+    orig, pert, names = [], [], []
     for line in open(recon):
         q = perturb(line)
         if q:
             orig.append(line)
             pert.append(q)
+            m = NAME.match(line)
+            names.append(m.group(1) if m else None)
     open(orig_p, "w").writelines(orig)
     open(pert_p, "w").writelines(pert)
 
     a, b = hashes(hashcheck, orig_p), hashes(hashcheck, pert_p)
-    changed = [k for k in b if k in a and a[k] != b[k]]
-    same = [k for k in b if k in a and a[k] == b[k]]
+    # every perturbed term needs both hashes, or the control proved nothing
+    missing = [n for n in names if n is None or n not in a or n not in b]
+    changed = [k for k in names if k in a and k in b and a[k] != b[k]]
+    same = [k for k in names if k in a and k in b and a[k] == b[k]]
     print("perturbable terms:            %d" % len(pert))
     print("  hash changed (as it must):  %d" % len(changed))
     print("  hash unchanged (a problem): %d %s" % (len(same), same[:5]))
-    sys.exit(1 if same else 0)
+    print("  without both hashes:        %d %s" % (len(missing), missing[:5]))
+    ok = pert and len(changed) == len(pert) and not (same or missing)
+    print("  verdict: %s" % ("PASS: every perturbation changed the hash" if ok
+                             else "FAILED: unchanged, missing or no perturbable terms"))
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

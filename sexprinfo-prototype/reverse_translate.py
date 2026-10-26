@@ -529,7 +529,17 @@ def main():
             msg = msg if verbose else msg[:400]
             print("  %s (%s): %s" % (name, kind, msg))
 
-    sys.exit(1 if stats["MISMATCH"] else 0)
+    # missing evidence fails too: a declaration absent from the Lean dump or
+    # too deep to reconstruct has not been checked. A --limit run is partial
+    # by design and says so.
+    unchecked = stats["absent from Lean"] + stats["too deep to check"]
+    if limit is not None:
+        print("\n  verdict: PARTIAL (--limit %d)" % limit)
+        sys.exit(1 if stats["MISMATCH"] else 0)
+    complete = stats["checked"] == len(corpus.order) and not (stats["MISMATCH"] or unchecked)
+    print("\n  verdict: %s" % ("COMPLETE: every declaration reconstructed and identical"
+                             if complete else "FAILED: mismatches or unchecked declarations"))
+    sys.exit(0 if complete else 1)
 
 
 if __name__ == "__main__":
