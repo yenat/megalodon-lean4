@@ -6,9 +6,11 @@ Lean 4, **and machine-checks every result**. Nothing is reported as translated
 unless Lean compiled it.
 
 **Update: a second, proof-term-based translator (`sexprinfo-prototype/`)
-verifies 3333 theorems across three corpora — zero Lean errors, zero
-`sorry`, zero `sorryAx` — and every result is checked back against
-Megalodon's own content hashes.** It works from Megalodon's structured,
+verifies 3333 theorems across three corpora (999 + 1401 + 933, a sum per
+corpus) — zero Lean errors, zero `sorry`, zero `sorryAx`. Every statement
+and definition is checked back against Megalodon's own content hashes, and
+every proof is compared structurally with Megalodon's original after a round
+trip through Lean.** It works from Megalodon's structured,
 already-typed proof export instead of hand-parsed source text, which
 removes the whole class of surface-syntax bug the translator below is
 still subject to.
@@ -22,7 +24,12 @@ still subject to.
 "Hashes matching" is the claim worth reading twice. The translated Lean is
 elaborated by Lean, read back out of Lean's own `Expr`, reconstructed as
 Megalodon s-expressions, and re-hashed by **Megalodon's own hashing code**
-— every id identical to the one Megalodon originally assigned. The
+— every id identical to the one Megalodon originally assigned. These ids
+identify theorem and axiom *statements* and definition *bodies*; Megalodon's
+proof id is a stub (`Syntax.ppf_id` returns zeros), so proofs are checked by
+the structural comparison ("proofs identical"), not by hash. The checks fail
+on missing evidence, not only on mismatches: every expected declaration must
+be reconstructed and every expected hash recomputed. The
 reverse direction is deliberately not an inverse of the forward map, since
 a mistranslation wrong the same way in both directions would round-trip
 perfectly; routing it through Lean's elaborator makes Lean an independent
@@ -226,7 +233,8 @@ same reference corpus, including the entire surreal-number category that is
 this translator's persistent weak point. See `sexprinfo-prototype/README.md`
 for the full result and how to reproduce it — it has since gone further,
 to 3333 theorems across three corpora with every Megalodon content hash
-reproduced.
+of a statement or definition reproduced and every proof structurally
+identical.
 
 What's left is integration, not proof-of-concept. Category splitting is
 done; so is reaching the wider mgwiki library (26 of its 31 files). What

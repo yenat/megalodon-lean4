@@ -29,7 +29,8 @@ errors and zero `sorry`.** 26 of the 31 files in `mglib/` export; see
 newer than any published source.
 
 All three corpora — 3333 theorems — also survive the reverse direction
-with every content hash reproduced. See "The reverse direction" below,
+with every content hash reproduced (hashes cover statements and definitions;
+proofs are compared structurally, since Megalodon's proof id is a stub). See "The reverse direction" below,
 which is the stronger claim and the one worth reading first.
 
 Also prints a statement-level consistency report
@@ -230,8 +231,17 @@ recur here by construction, not by further patching.
 - `sexpr_translate.py` — the translator: an S-expression parser, a
   `tp`/`tm`/`pf` -> Lean 4 term compiler (~230 lines), and a driver that
   reads a `-sexprinfo` dump and writes a single Lean file.
-- `verified_output/` — the full, verified output: `All.lean` (all 999
-  theorems, one file, authoritative) plus `prop_logic.lean` /
+- `verified_output/` — the full, verified output, regenerated with the
+  current translator: `All.lean` (all 999 theorems, one file,
+  authoritative; SHA-256 `8340d732…13e3`). The previous version
+  (`ba334fed…c060`, the library ai-mathematician's Phase 1 results were
+  produced against; all 875 of its replayable proofs re-check on both)
+  came from an older translator
+  without the `mgProp` wrapper; the two differ only inside 171 proofs and
+  by the wrapper's definition, with every statement identical. The current
+  version compiles with zero errors and reverse-checks complete, with all
+  999 proofs byte-identical (the older one: 866 identical, 133 beta-equal).
+  Also `prop_logic.lean` /
   `set_theory.lean` / `nat_arith.lean` / `ordinals.lean` /
   `surreals.lean`, each including only the prelude items and
   cross-category theorems it actually depends on. All six files
